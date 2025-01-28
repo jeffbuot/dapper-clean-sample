@@ -1,50 +1,59 @@
 using System.Data;
 using DapperSample.Domain;
 using Microsoft.Extensions.DependencyInjection;
+using MySql.Data.MySqlClient;
 
 namespace DapperSample.Infrastructure;
 
-public class UnitOfWork : IUnitOfWork
+public class UnitOfWork(ICurrentUnitOfWorkProvider currentUnitOfWorkProvider, string connectionString)
+    : IUnitOfWork, IDisposable
 {
-    private readonly IDbConnection _dbConnection;
-    private readonly IDbTransaction _dbTransaction;
-    private readonly IServiceProvider _serviceProvider;
+    private IDbConnection? _dbConnection;
+    private IDbTransaction? _dbTransaction;
+    private bool _disposed;
+    private readonly ICurrentUnitOfWorkProvider _currentUnitOfWorkProvider = currentUnitOfWorkProvider;
 
-    public IDbConnection Connection => _dbConnection;
-    public IDbTransaction Transaction => _dbTransaction;
-
-    public UnitOfWork(IServiceProvider serviceProvider)
+    public IDbConnection Connection => _dbConnection ??= new MySqlConnection(connectionString);
+    public IDbTransaction Transaction => _dbTransaction ?? throw new InvalidOperationException("The transaction has not been initialized.");
+    public async Task BeginAsync(CancellationToken cancellationToken = default)
     {
-        _serviceProvider = serviceProvider;
-        _dbConnection = _serviceProvider.GetRequiredService<IDbConnection>();
+        // Already inside of Uow so we just ignore
+        if (_currentUnitOfWorkProvider.Current != null) return;
+
+        // Begin new db connection
+        _dbConnection = new MySqlConnection(connectionString);
         _dbConnection.Open();
         _dbTransaction = _dbConnection.BeginTransaction();
+        // Set this as the current UoW for the provider
+        _currentUnitOfWorkProvider.Current = this;
+    }
+
+    public async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        // Just ignore if the current UoW is not this one, usually this is called when we manually initialize UoW for
+        // a specific code maybe.
+        if (_currentUnitOfWorkProvider.Current != this) return;
         
+        // Commit changes and clean
+        _dbTransaction?.Commit();
+        _dbTransaction = null;
+        _currentUnitOfWorkProvider.Current = null;
     }
 
-    public IRepository<T> GetRepository<T>() where T : IEntity
+    public async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
-        return _serviceProvider.GetRequiredService<IRepository<T>>();
+        if(_currentUnitOfWorkProvider.Current != this) return;
+        _dbTransaction?.Rollback();
+        _dbTransaction = null;
+        _currentUnitOfWorkProvider.Current = null;
     }
-
-    public async Task<int> CommitAsync()
-    {
-        try
-        {
-            _dbTransaction.Commit();
-            return 1;
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            _dbTransaction.Rollback();
-            return 0;
-        }
-    }
-
+    
     public void Dispose()
     {
+        if (_disposed) return;
         _dbTransaction?.Dispose();
         _dbConnection?.Dispose();
+        _disposed = true;
     }
+
 }
