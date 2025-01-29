@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Data;
 using DapperSample.Domain;
 
@@ -24,11 +25,11 @@ public interface ICurrentUnitOfWorkProvider
 
 public class CurrentUnitOfWorkProvider : ICurrentUnitOfWorkProvider
 {
-    private static readonly AsyncLocal<IUnitOfWork?> _currentUow = new();
+    private Guid? _guid;
+    public Guid Id => _guid ??= Guid.NewGuid();
+    private static readonly AsyncLocal<Guid?> _currentScopeId = new();
+    private static readonly ConcurrentDictionary<Guid, IUnitOfWork> _currentUnitOfWorks = new();
+    // private static readonly AsyncLocal<IUnitOfWork?> _currentUow = new();
 
-    public IUnitOfWork? Current
-    {
-        get => _currentUow.Value;
-        set => _currentUow.Value = value;
-    }
+    public IUnitOfWork? Current { get; set; }
 }

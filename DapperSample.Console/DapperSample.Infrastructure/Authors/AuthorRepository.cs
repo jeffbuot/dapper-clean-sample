@@ -16,7 +16,8 @@ public class AuthorRepository(ICurrentUnitOfWorkProvider unitOfWorkProvider, IUn
                                              where Id = '{id}'
                                              limit 1;
                                              """);
-        return await builder.ExecuteScalarAsync<Author>(transaction: Transaction);
+
+        return await builder.QueryFirstAsync<Author>(transaction:Transaction);
     }
 
     public override async Task<IEnumerable<Author>> GetListAsync(IRequestFilter filter = default)
